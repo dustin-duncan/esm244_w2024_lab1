@@ -1,0 +1,148 @@
+---
+title: "esm244_lab_1"
+format: 
+  html:
+    code-fold: true
+    toc: true
+execute: 
+  echo: true
+  message: false
+  warning: false
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+1 + 1
+```
+
+You can add options to executable code like this
+
+```{r}
+#| echo: false
+2 * 2
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+```{r}
+library(tidyverse)
+library(here)
+library(sfo)
+library(tmap)
+library(janitor)
+rm(list = ls())
+```
+
+```{r, load data}
+sfo_trees_df <- read_csv(here('data', 'sfo_trees', 'sfo_trees.csv'))
+```
+
+# Part 1: data exploration and wrangling review
+
+## Example 1
+
+Find counts of observations by 'legal_status', then select the statuses with the five highest tree counts
+
+### Pseudocode
+
+```{r}
+view(sfo_trees_df)
+sfo_trees_df <- clean_names(sfo_trees_df)
+```
+
+```{r}
+sfo_trees_df %>% 
+  group_by(legal_status) %>% 
+  summarize(tree_count = n())
+
+top_5_status <- sfo_trees_df %>% 
+  filter(!is.na(legal_status)) %>% 
+  group_by(legal_status) %>% 
+  summarize(tree_count = n()) %>% 
+  ungroup() %>% 
+  slice_max(tree_count, n = 5) # slice the top 5 rows from the tree count columnn
+```
+
+Make a ggplot of the top 5 observations from above:
+
+```{r}
+ggplot(data = top_5_status, aes(y = legal_status, x = tree_count)) + 
+  geom_col() + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5)) + 
+  labs(x = "Legal Status", y = "Number of Trees")
+```
+
+## Example 2
+
+Only keep observations where legal status is "permitted site" and caretaker is "MTA" or "DPW". Store as permitted_mta_dpw
+
+```{r}
+permitted_mta_dpw <- sfo_trees_df %>% 
+  filter(legal_status == "Permitted Site",
+         caretaker == "MTA" | caretaker == "DPW") 
+# you can also do caretaker %in% c("MTA", "DPW")
+```
+
+## Example 3
+
+Only keep observations of oak and pine trees. Then only keep columns "species", "legal_status", "plant_date", and "latitude" and "longitude" For each tree, note whether its an oak or a pine!
+
+### Pseudocode
+
+```{r}
+oak_pine_df1 <- sfo_trees_df %>% 
+  select(species, legal_status, plant_date, latitude, longitude) %>% 
+  filter(grepl('Pine|Oak', species)) %>% 
+  mutate(type = 
+           case_when(
+             grepl('Pine', species) ~ "Pine",
+             grepl('Oak', species) ~ "oak"))
+```
+
+OR you can do this!
+
+```{r}
+oak_pine_df2 <- sfo_trees_df %>% 
+  filter(str_detect(species, "Oak") | str_detect(species, 'Pine')) %>% 
+  select(species, legal_status, plant_date, latitude, longitude) %>% 
+  mutate(type = ifelse(str_detect(species, 'Oak'), 'oak', 'pine'))
+```
+
+```{r}
+ggplot(oak_pine_df1, aes(x = longitude, y = latitude, color = type)) + 
+  geom_point() + 
+  theme_minimal() + 
+  theme(axis.title = element_blank()) + 
+  labs(color = "Tree Type", caption = "Location of Oaks and Pines in San Francisco")
+```
+
+## Example 4
+
+load a list of CA native species
+
+```{r}
+ca_native_df <- read_csv(here('data', 'sfo_trees', 'ca_native_spp.csv'))
+```
+
+How can we compare the CA native species to those in our SF trees database? Add a column noting whether a tree is native or not. We'll need the common and scientific names separated!
+
+```{r}
+sfo_trees_native <- sfo_trees_df %>% 
+  separate(species, into = c('spp_sci', 'spp_common'), sep = '::') %>% 
+  select(starts_with('spp'), 'plant_date', 'legal_status', 'longitude', 'latitude') %>% 
+  mutate(ca_native = (spp_sci %in% ca_native_df$scientific_name)) #Comparing native trees database to our database by the scientific name
+
+sfo_native_status <- sfo_trees_native %>% 
+  group_by(legal_status, ca_native) %>% 
+  summarize(n_trees = n(),
+            n_species = n_distinct(spp_sci))
+```
